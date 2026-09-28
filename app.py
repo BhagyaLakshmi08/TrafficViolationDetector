@@ -2,165 +2,128 @@ import cv2
 from ultralytics import YOLO
 import os
 
-# ============================================================
-# 1. LOAD YOLO MODEL
-# ============================================================
+print("Starting Traffic Violation Detector...")
+
+
+# -------------------------------------------------
+# LOAD YOLO MODEL
+# -------------------------------------------------
 
 model = YOLO("yolo11n.pt")
 
+print("YOLO model loaded successfully.")
 
-# ============================================================
-# 2. OPEN VIDEO
-# ============================================================
+
+# -------------------------------------------------
+# OPEN VIDEO
+# -------------------------------------------------
 
 video = cv2.VideoCapture("traffic.mp4")
 
 if not video.isOpened():
-    print("Error: Could not open traffic.mp4")
+    print("ERROR: Could not open traffic.mp4")
     exit()
 
 print("Traffic video opened successfully.")
 
 
-# ============================================================
-# 3. VEHICLE CLASSES
-# ============================================================
+# -------------------------------------------------
+# VIDEO SETTINGS
+# -------------------------------------------------
 
-vehicle_classes = {
-    2: "Car",
-    3: "Motorcycle",
-    5: "Bus",
-    7: "Truck"
-}
+width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
+height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
+fps = video.get(cv2.CAP_PROP_FPS)
 
-
-# ============================================================
-# 4. CREATE VIOLATION FOLDER
-# ============================================================
-
-os.makedirs("violations", exist_ok=True)
+if fps <= 0:
+    fps = 30
 
 
-# ============================================================
-# 5. TRACKING DATA
-# ============================================================
+# -------------------------------------------------
+# OUTPUT
+# -------------------------------------------------
 
-previous_positions = {}
+os.makedirs("output", exist_ok=True)
 
-violated_vehicles = set()
+output_path = "output/vehicle_tracking.mp4"
 
-violation_count = 0
+fourcc = cv2.VideoWriter_fourcc(*"mp4v")
 
-
-# ============================================================
-# 6. TRAFFIC LIGHT
-# ============================================================
-
-# For testing, assume the traffic light is RED.
-
-traffic_light = "RED"
-
-
-# ============================================================
-# 7. START
-# ============================================================
-
-print("Vehicle tracking started.")
-print("Traffic light:", traffic_light)
-print("Red-light violation detection started.")
-print("Press Q to quit.")
+# We process every 2nd frame, so adjust output FPS
+output = cv2.VideoWriter(
+    output_path,
+    fourcc,
+    fps / 2,
+    (width, height)
+)
 
 
-# ============================================================
-# 8. PROCESS VIDEO
-# ============================================================
+# -------------------------------------------------
+# VEHICLE CLASSES
+# -------------------------------------------------
+
+vehicle_classes = [2, 3, 5, 7]
+
+# 2 = Car
+# 3 = Motorcycle
+# 5 = Bus
+# 7 = Truck
+
+
+# -------------------------------------------------
+# PROCESSING SETTINGS
+# -------------------------------------------------
+
+frame_count = 0
+
+PROCESS_EVERY_N_FRAMES = 2
+
+
+print()
+print("Vehicle detection and tracking started.")
+print("GUI display disabled.")
+print("Processing video...")
+
+
+# -------------------------------------------------
+# PROCESS VIDEO
+# -------------------------------------------------
 
 while True:
 
-    success, frame = video.read()
+    ret, frame = video.read()
 
-    if not success:
-        print("Video finished.")
+    if not ret:
         break
 
-
-    # ========================================================
-    # FRAME SIZE
-    # ========================================================
-
-    height, width = frame.shape[:2]
+    frame_count += 1
 
 
-    # ========================================================
-    # STOP LINE
-    # ========================================================
+    # -------------------------------------------------
+    # PROCESS EVERY 2ND FRAME
+    # -------------------------------------------------
 
-    # Position of the virtual stop line.
-    # Change this ONLY if necessary after seeing the result.
-
-    stop_line_y = int(height * 0.70)
+    if frame_count % PROCESS_EVERY_N_FRAMES != 0:
+        continue
 
 
-    # Draw stop line
-
-    cv2.line(
-        frame,
-        (0, stop_line_y),
-        (width, stop_line_y),
-        (0, 0, 255),
-        4
-    )
-
-
-    cv2.putText(
-        frame,
-        "STOP LINE",
-        (20, stop_line_y - 15),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.8,
-        (0, 0, 255),
-        2
-    )
-
-
-    # ========================================================
-    # DISPLAY TRAFFIC LIGHT
-    # ========================================================
-
-    cv2.rectangle(
-        frame,
-        (width - 280, 20),
-        (width - 20, 75),
-        (0, 0, 0),
-        -1
-    )
-
-    cv2.putText(
-        frame,
-        "LIGHT: RED",
-        (width - 250, 58),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.8,
-        (0, 0, 255),
-        2
-    )
-
-
-    # ========================================================
+    # -------------------------------------------------
     # YOLO TRACKING
-    # ========================================================
+    # -------------------------------------------------
 
     results = model.track(
         frame,
         persist=True,
-        classes=list(vehicle_classes.keys()),
+        classes=vehicle_classes,
+        conf=0.25,
+        imgsz=640,
         verbose=False
     )
 
 
-    # ========================================================
-    # PROCESS VEHICLES
-    # ========================================================
+    # -------------------------------------------------
+    # DRAW VEHICLES
+    # -------------------------------------------------
 
     for result in results:
 
@@ -170,226 +133,102 @@ while True:
 
         for box in result.boxes:
 
-            # Tracking ID required
-
-            if box.id is None:
-                continue
-
-
-            # ------------------------------------------------
-            # VEHICLE INFORMATION
-            # ------------------------------------------------
-
-            class_id = int(box.cls[0])
-
-            track_id = int(box.id[0])
-
-            confidence = float(box.conf[0])
-
-
-            if class_id not in vehicle_classes:
-                continue
-
-
-            vehicle_name = vehicle_classes[class_id]
-
-
-            # ------------------------------------------------
-            # BOUNDING BOX
-            # ------------------------------------------------
-
+            # Coordinates
             x1, y1, x2, y2 = map(
                 int,
                 box.xyxy[0]
             )
 
 
-            # ------------------------------------------------
-            # CENTER POINT
-            # ------------------------------------------------
-
-            center_x = (x1 + x2) // 2
-
-            center_y = (y1 + y2) // 2
+            # Confidence
+            confidence = float(
+                box.conf[0]
+            )
 
 
-            # =================================================
-            # CHECK CROSSING
-            # =================================================
-
-            crossed_line = False
+            if confidence < 0.25:
+                continue
 
 
-            if track_id in previous_positions:
-
-                previous_y = previous_positions[track_id]
-
-
-                # ------------------------------------------------
-                # CROSSING IN EITHER DIRECTION
-                # ------------------------------------------------
-
-                moved_down = (
-                    previous_y < stop_line_y
-                    and center_y >= stop_line_y
-                )
+            # Class ID
+            class_id = int(
+                box.cls[0]
+            )
 
 
-                moved_up = (
-                    previous_y > stop_line_y
-                    and center_y <= stop_line_y
-                )
+            # Vehicle names
+            names = {
+                2: "Car",
+                3: "Motorcycle",
+                5: "Bus",
+                7: "Truck"
+            }
 
 
-                if moved_down or moved_up:
-
-                    crossed_line = True
-
-
-            # =================================================
-            # RED LIGHT VIOLATION
-            # =================================================
-
-            if (
-                traffic_light == "RED"
-                and crossed_line
-                and track_id not in violated_vehicles
-            ):
-
-                # Register violation
-
-                violated_vehicles.add(track_id)
-
-                violation_count += 1
+            vehicle_name = names.get(
+                class_id,
+                "Vehicle"
+            )
 
 
-                # ------------------------------------------------
-                # TERMINAL MESSAGE
-                # ------------------------------------------------
+            # -------------------------------------------------
+            # TRACK ID
+            # -------------------------------------------------
 
-                print()
-                print("========================================")
-                print("     RED LIGHT VIOLATION DETECTED")
-                print("========================================")
-                print("Vehicle:", vehicle_name)
-                print("Vehicle ID:", track_id)
-                print("Confidence:", round(confidence, 2))
-                print("Violation number:", violation_count)
-                print("========================================")
+            if box.id is not None:
 
-
-                # ------------------------------------------------
-                # SAVE EVIDENCE
-                # ------------------------------------------------
-
-                filename = (
-                    f"violations/"
-                    f"red_light_violation_ID_{track_id}.jpg"
-                )
-
-
-                cv2.imwrite(
-                    filename,
-                    frame
-                )
-
-
-                print(
-                    "Evidence saved:",
-                    filename
-                )
-
-
-            # =================================================
-            # SAVE CURRENT POSITION
-            # =================================================
-
-            previous_positions[track_id] = center_y
-
-
-            # =================================================
-            # VEHICLE DISPLAY
-            # =================================================
-
-            if track_id in violated_vehicles:
-
-                box_color = (0, 0, 255)
-
-                label = (
-                    f"VIOLATION | "
-                    f"{vehicle_name} | "
-                    f"ID:{track_id}"
+                track_id = int(
+                    box.id[0]
                 )
 
             else:
 
-                box_color = (0, 255, 0)
-
-                label = (
-                    f"{vehicle_name} | "
-                    f"ID:{track_id} | "
-                    f"{confidence:.2f}"
-                )
+                track_id = 0
 
 
-            # =================================================
-            # DRAW VEHICLE BOX
-            # =================================================
+            # -------------------------------------------------
+            # DRAW BOX
+            # -------------------------------------------------
 
             cv2.rectangle(
                 frame,
                 (x1, y1),
                 (x2, y2),
-                box_color,
-                3
+                (0, 255, 0),
+                2
             )
 
 
-            # =================================================
+            # -------------------------------------------------
             # DRAW LABEL
-            # =================================================
+            # -------------------------------------------------
+
+            label = (
+                f"{vehicle_name} "
+                f"ID:{track_id} "
+                f"{confidence:.2f}"
+            )
+
 
             cv2.putText(
                 frame,
                 label,
                 (x1, max(y1 - 10, 25)),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
-                box_color,
+                0.6,
+                (0, 255, 0),
                 2
             )
 
 
-            # =================================================
-            # DRAW CENTER POINT
-            # =================================================
-
-            cv2.circle(
-                frame,
-                (center_x, center_y),
-                6,
-                (255, 0, 0),
-                -1
-            )
-
-
-    # ========================================================
-    # VIOLATION COUNT
-    # ========================================================
-
-    cv2.rectangle(
-        frame,
-        (10, 10),
-        (270, 60),
-        (0, 0, 0),
-        -1
-    )
-
+    # -------------------------------------------------
+    # FRAME NUMBER
+    # -------------------------------------------------
 
     cv2.putText(
         frame,
-        f"Violations: {violation_count}",
-        (20, 45),
+        f"Frame: {frame_count}",
+        (20, 35),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.8,
         (255, 255, 255),
@@ -397,52 +236,43 @@ while True:
     )
 
 
-    # ========================================================
-    # ALERT
-    # ========================================================
+    # -------------------------------------------------
+    # SAVE FRAME
+    # -------------------------------------------------
 
-    if violation_count > 0:
+    output.write(frame)
 
-        cv2.putText(
-            frame,
-            "RED LIGHT VIOLATION DETECTED",
-            (width // 2 - 330, 100),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            1.0,
-            (0, 0, 255),
-            3
+
+    # -------------------------------------------------
+    # PROGRESS
+    # -------------------------------------------------
+
+    if frame_count % 20 == 0:
+
+        print(
+            f"Processed frame: {frame_count}"
         )
 
 
-    # ========================================================
-    # DISPLAY VIDEO
-    # ========================================================
-
-    cv2.imshow(
-        "Traffic Violation Detector",
-        frame
-    )
-
-
-    # ========================================================
-    # QUIT
-    # ========================================================
-
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        break
-
-
-# ============================================================
+# -------------------------------------------------
 # CLEANUP
-# ============================================================
+# -------------------------------------------------
 
 video.release()
-
-cv2.destroyAllWindows()
+output.release()
 
 
 print()
-print("========================================")
-print("Program stopped.")
-print("Total violations:", violation_count)
-print("========================================")
+print("--------------------------------")
+print("PROCESSING FINISHED")
+print("--------------------------------")
+
+print(
+    "Processed frames:",
+    frame_count
+)
+
+print(
+    "Output saved to:",
+    output_path
+)
