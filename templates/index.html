@@ -1,0 +1,241 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TrafficGuard | AI Traffic Monitoring</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header class="topbar">
+        <div>
+            <h1>TrafficGuard</h1>
+            <p>AI Traffic Monitoring & E-Challan Management</p>
+        </div>
+        <span class="status"><span class="dot"></span> Dashboard Online</span>
+    </header>
+
+    <main class="container">
+
+        <section class="welcome">
+            <div>
+                <h2>Traffic Monitoring Dashboard</h2>
+                <p>
+                    Monitor detected number plates, review OCR results,
+                    and search registered vehicle information.
+                </p>
+            </div>
+        </section>
+
+        <!-- RECOGNITION SUMMARY -->
+        <section class="panel">
+            <div class="panel-heading">
+                <div>
+                    <h2>Recognition Summary</h2>
+                    <p>Results from the latest completed pipeline run</p>
+                </div>
+                <span class="tag">Last Run</span>
+            </div>
+
+            <section class="stats">
+                <article class="stat-card">
+                    <span class="stat-icon">🎞️</span>
+                    <p>Frames Processed</p>
+                    <h3>631</h3>
+                    <small>Video frames analyzed</small>
+                </article>
+
+                <article class="stat-card">
+                    <span class="stat-icon">🔎</span>
+                    <p>Plate Detections</p>
+                    <h3>731</h3>
+                    <small>OCR attempts performed</small>
+                </article>
+
+                <article class="stat-card">
+                    <span class="stat-icon">🔤</span>
+                    <p>Distinct OCR Candidates</p>
+                    <h3>104</h3>
+                    <small>Different recognized strings</small>
+                </article>
+
+                <article class="stat-card">
+                    <span class="stat-icon">✅</span>
+                    <p>Exact Owner Matches</p>
+                    <h3>0</h3>
+                    <small>Matched in MongoDB</small>
+                </article>
+
+                <article class="stat-card">
+                    <span class="stat-icon">⚠️</span>
+                    <p>Unmatched Candidates</p>
+                    <h3>66</h3>
+                    <small>No exact owner record</small>
+                </article>
+
+                <article class="stat-card">
+                    <span class="stat-icon">📝</span>
+                    <p>Manual Review</p>
+                    <h3>38</h3>
+                    <small>Low OCR confidence</small>
+                </article>
+            </section>
+
+            <p class="hint">
+                These figures represent the last completed run.
+                They will not update automatically when the pipeline runs again.
+                OCR results and database matches should be verified before
+                any violation or challan is confirmed.
+            </p>
+        </section>
+
+        <!-- ANNOTATED VIDEO -->
+        <section class="panel">
+            <div class="panel-heading">
+                <div>
+                    <h2>Number Plate Recognition Video</h2>
+                    <p>
+                        Detected plate boxes, OCR text, confidence,
+                        and exact owner lookup status
+                    </p>
+                </div>
+                <span class="tag">MP4</span>
+            </div>
+
+            {% if video_exists %}
+                <video controls preload="metadata" playsinline>
+                    <source
+                        src="{{ url_for('processed_video') }}"
+                        type="video/mp4">
+                    Your browser does not support HTML video.
+                </video>
+
+                <p class="hint">
+                    Green labels indicate an owner record was found.
+                    Red labels indicate no exact match or a database error.
+                    Orange labels indicate low confidence or an unreadable plate.
+                </p>
+            {% else %}
+                <div class="empty-state">
+                    <span>🎥</span>
+                    <h3>No annotated video available</h3>
+                    <p>
+                        Run complete_pipeline.py, convert the generated AVI
+                        to MP4, and refresh this dashboard.
+                    </p>
+                </div>
+            {% endif %}
+        </section>
+
+        <!-- VEHICLE LOOKUP -->
+        <section class="panel">
+            <div class="panel-heading">
+                <div>
+                    <h2>Vehicle Lookup</h2>
+                    <p>Search for a vehicle in the registered MongoDB database</p>
+                </div>
+            </div>
+
+            <form action="{{ url_for('lookup') }}"
+                  method="get"
+                  class="search-form">
+
+                <input
+                    type="text"
+                    name="plate"
+                    placeholder="Enter registration number"
+                    aria-label="Vehicle registration number"
+                    required>
+
+                <button type="submit">Search Vehicle</button>
+            </form>
+
+            {% if lookup_done %}
+                {% if owner %}
+                    <div class="result success">
+                        <h3>Vehicle Record Found</h3>
+
+                        <p>
+                            <strong>Plate:</strong>
+                            {{ owner.get('vehicle_number', 'Not listed') }}
+                        </p>
+
+                        <p>
+                            <strong>Owner:</strong>
+                            {{ owner.get('owner_name', 'Not listed') }}
+                        </p>
+
+                        <p>
+                            <strong>Phone:</strong>
+                            {{ owner.get('phone_number', 'Not listed') }}
+                        </p>
+
+                        <p>
+                            <strong>Vehicle type:</strong>
+                            {{ owner.get('vehicle_type', 'Not listed') }}
+                        </p>
+                    </div>
+                {% else %}
+                    <div class="result warning">
+                        <h3>No Matching Vehicle Record</h3>
+                        <p>
+                            No exact matching record was found for the entered
+                            registration number. Check the plate text and
+                            registered database.
+                        </p>
+                    </div>
+                {% endif %}
+            {% endif %}
+        </section>
+
+        <!-- PROJECT INFORMATION -->
+        <section class="panel">
+            <div class="panel-heading">
+                <div>
+                    <h2>System Components</h2>
+                    <p>Technologies used in this academic prototype</p>
+                </div>
+            </div>
+
+            <section class="stats">
+                <article class="stat-card">
+                    <span class="stat-icon">🚘</span>
+                    <p>Vehicle Tracking</p>
+                    <h3>YOLO</h3>
+                    <small>Vehicle detection model</small>
+                </article>
+
+                <article class="stat-card">
+                    <span class="stat-icon">🔠</span>
+                    <p>Plate Recognition</p>
+                    <h3>EasyOCR</h3>
+                    <small>Reads detected plate text</small>
+                </article>
+
+                <article class="stat-card">
+                    <span class="stat-icon">🗄️</span>
+                    <p>Vehicle Database</p>
+                    <h3>MongoDB</h3>
+                    <small>Registered owner records</small>
+                </article>
+
+                <article class="stat-card">
+                    <span class="stat-icon">🌐</span>
+                    <p>Web Dashboard</p>
+                    <h3>Flask</h3>
+                    <small>Displays video and lookup results</small>
+                </article>
+            </section>
+        </section>
+
+        <footer>
+            <p>
+                TrafficGuard · Academic project prototype ·
+                Verify evidence and violations before issuing a challan.
+            </p>
+        </footer>
+
+    </main>
+</body>
+</html>
