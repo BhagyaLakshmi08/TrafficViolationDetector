@@ -1,278 +1,63 @@
-import cv2
-from ultralytics import YOLO
-import os
 
-print("Starting Traffic Violation Detector...")
+from flask import Flask, render_template, request, url_for
+from pathlib import Path
+from owner_database import find_owner
 
+app = Flask(__name__)
 
-# -------------------------------------------------
-# LOAD YOLO MODEL
-# -------------------------------------------------
-
-model = YOLO("yolo11n.pt")
-
-print("YOLO model loaded successfully.")
+BASE_DIR = Path(__file__).resolve().parent
+OUTPUT_VIDEO = BASE_DIR / "output" / "plate_recognition.mp4"
 
 
-# -------------------------------------------------
-# OPEN VIDEO
-# -------------------------------------------------
+@app.route("/")
+def dashboard():
+    video_exists = OUTPUT_VIDEO.exists()
 
-video = cv2.VideoCapture("traffic.mp4")
-
-if not video.isOpened():
-    print("ERROR: Could not open traffic.mp4")
-    exit()
-
-print("Traffic video opened successfully.")
-
-
-# -------------------------------------------------
-# VIDEO SETTINGS
-# -------------------------------------------------
-
-width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
-height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
-fps = video.get(cv2.CAP_PROP_FPS)
-
-if fps <= 0:
-    fps = 30
-
-
-# -------------------------------------------------
-# OUTPUT
-# -------------------------------------------------
-
-os.makedirs("output", exist_ok=True)
-
-output_path = "output/vehicle_tracking.mp4"
-
-fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-
-# We process every 2nd frame, so adjust output FPS
-output = cv2.VideoWriter(
-    output_path,
-    fourcc,
-    fps / 2,
-    (width, height)
-)
-
-
-# -------------------------------------------------
-# VEHICLE CLASSES
-# -------------------------------------------------
-
-vehicle_classes = [2, 3, 5, 7]
-
-# 2 = Car
-# 3 = Motorcycle
-# 5 = Bus
-# 7 = Truck
-
-
-# -------------------------------------------------
-# PROCESSING SETTINGS
-# -------------------------------------------------
-
-frame_count = 0
-
-PROCESS_EVERY_N_FRAMES = 2
-
-
-print()
-print("Vehicle detection and tracking started.")
-print("GUI display disabled.")
-print("Processing video...")
-
-
-# -------------------------------------------------
-# PROCESS VIDEO
-# -------------------------------------------------
-
-while True:
-
-    ret, frame = video.read()
-
-    if not ret:
-        break
-
-    frame_count += 1
-
-
-    # -------------------------------------------------
-    # PROCESS EVERY 2ND FRAME
-    # -------------------------------------------------
-
-    if frame_count % PROCESS_EVERY_N_FRAMES != 0:
-        continue
-
-
-    # -------------------------------------------------
-    # YOLO TRACKING
-    # -------------------------------------------------
-
-    results = model.track(
-        frame,
-        persist=True,
-        classes=vehicle_classes,
-        conf=0.25,
-        imgsz=640,
-        verbose=False
+    return render_template(
+        "index.html",
+        video_exists=video_exists,
+        lookup_done=False,
+        owner=None
     )
 
 
-    # -------------------------------------------------
-    # DRAW VEHICLES
-    # -------------------------------------------------
+@app.route("/lookup", methods=["GET"])
+def lookup():
+    plate = request.args.get("plate", "").strip()
+    owner = None
+    lookup_done = False
 
-    for result in results:
+    if plate:
+        lookup_done = True
 
-        if result.boxes is None:
-            continue
-
-
-        for box in result.boxes:
-
-            # Coordinates
-            x1, y1, x2, y2 = map(
-                int,
-                box.xyxy[0]
+        try:
+            owner = find_owner(plate)
+        except Exception as error:
+            app.logger.exception("Vehicle lookup failed")
+            return (
+                "Vehicle lookup failed. Check your MongoDB connection "
+                "and owner_database.py configuration.",
+                500
             )
 
-
-            # Confidence
-            confidence = float(
-                box.conf[0]
-            )
-
-
-            if confidence < 0.25:
-                continue
-
-
-            # Class ID
-            class_id = int(
-                box.cls[0]
-            )
-
-
-            # Vehicle names
-            names = {
-                2: "Car",
-                3: "Motorcycle",
-                5: "Bus",
-                7: "Truck"
-            }
-
-
-            vehicle_name = names.get(
-                class_id,
-                "Vehicle"
-            )
-
-
-            # -------------------------------------------------
-            # TRACK ID
-            # -------------------------------------------------
-
-            if box.id is not None:
-
-                track_id = int(
-                    box.id[0]
-                )
-
-            else:
-
-                track_id = 0
-
-
-            # -------------------------------------------------
-            # DRAW BOX
-            # -------------------------------------------------
-
-            cv2.rectangle(
-                frame,
-                (x1, y1),
-                (x2, y2),
-                (0, 255, 0),
-                2
-            )
-
-
-            # -------------------------------------------------
-            # DRAW LABEL
-            # -------------------------------------------------
-
-            label = (
-                f"{vehicle_name} "
-                f"ID:{track_id} "
-                f"{confidence:.2f}"
-            )
-
-
-            cv2.putText(
-                frame,
-                label,
-                (x1, max(y1 - 10, 25)),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (0, 255, 0),
-                2
-            )
-
-
-    # -------------------------------------------------
-    # FRAME NUMBER
-    # -------------------------------------------------
-
-    cv2.putText(
-        frame,
-        f"Frame: {frame_count}",
-        (20, 35),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.8,
-        (255, 255, 255),
-        2
+    return render_template(
+        "index.html",
+        video_exists=OUTPUT_VIDEO.exists(),
+        lookup_done=lookup_done,
+        owner=owner
     )
 
 
-    # -------------------------------------------------
-    # SAVE FRAME
-    # -------------------------------------------------
+@app.route("/video")
+def processed_video():
+    if not OUTPUT_VIDEO.exists():
+        return "Processed video is not available yet.", 404
 
-    output.write(frame)
-
-
-    # -------------------------------------------------
-    # PROGRESS
-    # -------------------------------------------------
-
-    if frame_count % 20 == 0:
-
-        print(
-            f"Processed frame: {frame_count}"
-        )
+    from flask import send_file
+    return send_file(OUTPUT_VIDEO, mimetype="video/mp4")
 
 
-# -------------------------------------------------
-# CLEANUP
-# -------------------------------------------------
-
-video.release()
-output.release()
-
-
-print()
-print("--------------------------------")
-print("PROCESSING FINISHED")
-print("--------------------------------")
-
-print(
-    "Processed frames:",
-    frame_count
-)
-
-print(
-    "Output saved to:",
-    output_path
-)
+if __name__ == "__main__":
+    print("Starting TrafficGuard dashboard...")
+    print("Open http://127.0.0.1:5000 in your browser.")
+    app.run(debug=False, host="127.0.0.1", port=5000)
