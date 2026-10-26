@@ -2,7 +2,7 @@ import cv2
 from ultralytics import YOLO
 
 # Load license plate model
-model = YOLO("license-plate-finetune-v1n.pt")
+model = YOLO("license_plate_detector.pt")
 
 # Open traffic video
 video = cv2.VideoCapture("traffic.mp4")
